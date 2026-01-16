@@ -16,7 +16,7 @@ REQUIRED_TEMPLATES = {
     "ccprov1": "ccprov1_{date}.xls",
     "ccprov2": "ccprov2_{date}.xls",
     "ccstaff": "ccstaff_{date}.xls",
-    "labor": "Labor_Summary_by_Employee___Retool_Annual_Export_{date}.csv",
+    "labor": "Labor_Summary_by_Employee_Retool_Annual_Export_{date}.csv",
 }
 
 def _extract_date_from_key(key: str) -> str:
