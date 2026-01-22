@@ -59,10 +59,11 @@ def handler(event, context):
     )
 
     upload_to_postgres(
-        ccprov_csv_path=ccprov_csv,
-        ccstaff_csv_path=ccstaff_csv,
-        labor_csv_path=labor_local,
+    ccprov_csv_path=ccprov_csv,
+    ccstaff_csv_path=ccstaff_csv,
+    labor_xlsx_path=labor_local,
     )
+
 
     return {
         "ok": True,
