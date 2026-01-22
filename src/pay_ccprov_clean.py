@@ -11,7 +11,7 @@ def clean_ccprov_and_ccstaff(ccprov_paths, ccstaff_paths, out_dir="/tmp"):
     def _merge_clean_excel(paths):
         dfs = []
         for p in paths:
-            df = pd.read_excel(p, skiprows=5)
+            df = pd.read_excel(p, skiprows=5, engine='openpyxl')
             df_cleaned = df.drop(df.columns[2], axis=1)
             df_cleaned.reset_index(drop=True, inplace=True)
             dfs.append(df_cleaned)

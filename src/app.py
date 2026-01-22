@@ -10,9 +10,9 @@ BUCKET = os.environ["S3_BUCKET"]
 PREFIX = os.getenv("S3_PREFIX", "")
 
 WANTS = {
-    "ccprov1": lambda k: os.path.basename(k).startswith("ccprov1_") and k.lower().endswith(".xls"),
-    "ccprov2": lambda k: os.path.basename(k).startswith("ccprov2_") and k.lower().endswith(".xls"),
-    "ccstaff": lambda k: os.path.basename(k).startswith("ccstaff_") and k.lower().endswith(".xls"),
+    "ccprov1": lambda k: os.path.basename(k).startswith("ccprov1_") and k.lower().endswith(".xlsx"),
+    "ccprov2": lambda k: os.path.basename(k).startswith("ccprov2_") and k.lower().endswith(".xlsx"),
+    "ccstaff": lambda k: os.path.basename(k).startswith("ccstaff_") and k.lower().endswith(".xlsx"),
     "labor":   lambda k: os.path.basename(k).startswith("Labor_Summary_by_Employee_Retool_Annual_Export_") and k.lower().endswith(".xlsx"),
 }
 

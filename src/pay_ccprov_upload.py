@@ -4,7 +4,7 @@ from psycopg2.extras import execute_values
 from db.easebase_conn import easebase_conn
 
 def upload_to_postgres(ccprov_csv_path, ccstaff_csv_path, labor_csv_path):
-    lab_ledger_df = pd.read_csv(labor_csv_path)
+    lab_ledger_df = pd.read_excel(labor_xlsx_path, engine="openpyxl")
     staff_ledger_df = pd.read_csv(ccstaff_csv_path)
     ledger_df = pd.read_csv(ccprov_csv_path)
 
