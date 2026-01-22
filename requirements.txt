@@ -3,4 +3,8 @@ botocore
 pandas==2.0.1
 psycopg2-binary
 xlrd==1.2.0
-numpy>=1.21.0
+numpy>=1.24.4
+python-dateutil>=2.8.2
+pytz>=2020.1
+tzdata>=2022.1
+openpyxl>=3.1.0
