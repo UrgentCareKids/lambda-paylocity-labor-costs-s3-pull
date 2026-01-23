@@ -1,7 +1,7 @@
 import csv
 from openpyxl import load_workbook
 from psycopg2.extras import execute_values
-from db.easebase_conn import easebase_conn
+# from db.easebase_conn import easebase_conn
 
 def _noneify(v):
     # Convert blanks to None; keep numbers/dates as-is
@@ -10,6 +10,21 @@ def _noneify(v):
     if isinstance(v, str) and v.strip() == "":
         return None
     return v
+
+def get_db_connection():
+    try:
+        db_credentials = json.loads(os.getenv("DB_CREDENTIALS"))  # Retrieve and parse DB credentials
+        conn = psycopg2.connect(
+            dbname=db_credentials["database"],
+            user=db_credentials["user"],
+            password=db_credentials["password"],
+            host=db_credentials["host"],
+            port=db_credentials["port"]
+        )
+        return conn
+    except Exception as e:
+        print(f"🚨 Database connection error: {e}")
+        raise
 
 def _read_csv_rows(path):
     with open(path, newline="", encoding="utf-8") as f:
@@ -39,7 +54,7 @@ def _read_xlsx_rows(path, header_row=1):
     return header, rows
 
 def upload_to_postgres(ccprov_csv_path, ccstaff_csv_path, labor_xlsx_path):
-    conn = easebase_conn()
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     table_name = 'app.clinic_ccprov'
