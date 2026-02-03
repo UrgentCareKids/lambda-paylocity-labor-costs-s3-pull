@@ -37,7 +37,7 @@ def _download(bucket: str, key: str) -> str:
     return local
 
 def handler(event, context):
-    t0 = time.time() ##
+    ## t0 = time.time() ##
     ## log.info("start request_id=%s bucket=%s prefix=%s", context.aws_request_id, BUCKET, PREFIX) ##
 
     # Find newest key for each required file bucket
@@ -68,7 +68,7 @@ def handler(event, context):
     labor_local   = _download(BUCKET, newest["labor"]["Key"])
     ## og.info("downloaded elapsed=%.2fs", time.time() - t_dl) ##
 
-    t_clean = time.time() ##
+    ## t_clean = time.time() ##
     ccprov_csv, ccstaff_csv = clean_ccprov_and_ccstaff(
         ccprov_paths=[ccprov1_local, ccprov2_local],
         ccstaff_paths=[ccstaff_local],
