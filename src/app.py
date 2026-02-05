@@ -44,6 +44,7 @@ def handler(event, context):
     print("PREFIX =", repr(os.environ.get("S3_PREFIX", "")))
 
     probe_key = "Paylocity/Labor_Summary_by_Employee_Retool_Annual_Export_2026-02-05.xlsx"
+    print("ABOUT_TO_HEAD_OBJECT", probe_key)
     try:
         s3.head_object(Bucket=BUCKET, Key=probe_key)
         print("HEAD_OBJECT labor: OK")
