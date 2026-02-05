@@ -51,12 +51,21 @@ def _download(bucket: str, key: str) -> str:
     return local
 
 def handler(event, context):
-    
+
     print("FUNC_NAME =", context.function_name)
     print("FUNC_VER  =", context.function_version)
     print("INVOKED_ARN =", context.invoked_function_arn)
     print("BUCKET =", os.environ.get("S3_BUCKET"))
     print("PREFIX =", repr(os.environ.get("S3_PREFIX", "")))
+    # quick direct probe for the labor key
+    probe_key = "Paylocity/Labor_Summary_by_Employee_Retool_Annual_Export_2026-02-05.xlsx"
+    try:
+        s3.head_object(Bucket=BUCKET, Key=probe_key)
+        print("HEAD_OBJECT labor: OK")
+    except Exception as e:
+        print("HEAD_OBJECT labor: FAILED", repr(e))
+
+
     ## t0 = time.time() ##
     ## log.info("start request_id=%s bucket=%s prefix=%s", context.aws_request_id, BUCKET, PREFIX) ##
     print('got to handler')
