@@ -42,6 +42,8 @@ def _download(bucket: str, key: str) -> str:
     return local
 
 def handler(event, context):
+    t0 = time.time()
+    print(json.dumps({"msg":"handler_start", "request_id": context.aws_request_id}))
     # print('got to handler')
     t = time.time()
     # Find newest key for each required file bucket
