@@ -1,37 +1,24 @@
 import os
 import boto3
-## import time ##
-## import logging ##
 
 from pay_ccprov_clean import clean_ccprov_and_ccstaff
 from pay_ccprov_upload import upload_to_postgres
-## from datetime import datetime, timezone ##
-
-## log = logging.getLogger() ##
-## log.setLevel(logging.INFO) ##
 
 s3 = boto3.client("s3")
 
 BUCKET = os.environ["S3_BUCKET"]
 PREFIX = os.getenv("S3_PREFIX", "")
 
-WANTS = {
-    "ccprov1": lambda k: os.path.basename(k).startswith("ccprov1_") and k.lower().endswith(".xlsx"),
-    "ccprov2": lambda k: os.path.basename(k).startswith("ccprov2_") and k.lower().endswith(".xlsx"),
-    "ccstaff": lambda k: os.path.basename(k).startswith("ccstaff_") and k.lower().endswith(".xlsx"),
-    "labor":   lambda k: os.path.basename(k).startswith("Labor_Summary_by_Employee_Retool_Annual_Export_") and k.lower().endswith(".xlsx"),
-}
+EXCEL_EXTS = (".xls", ".xlsx")
 
-# def _list_objects(bucket: str, prefix: str):
-#     print('in _list_objects')
-#     paginator = s3.get_paginator("list_objects_v2")
-#     kwargs = {"Bucket": bucket}
-#     if prefix:
-#         kwargs["Prefix"] = prefix 
-#     for page in paginator.paginate(**kwargs):
-#         for obj in page.get("Contents", []):
-#             yield obj  
-#             print(obj)
+WANTS = {
+    "ccprov1": lambda k: os.path.basename(k).lower().startswith("ccprov1_") and k.lower().endswith(EXCEL_EXTS),
+    "ccprov2": lambda k: os.path.basename(k).lower().startswith("ccprov2_") and k.lower().endswith(EXCEL_EXTS),
+    "ccstaff": lambda k: os.path.basename(k).lower().startswith("ccstaff_") and k.lower().endswith(EXCEL_EXTS),
+    "labor":   lambda k: os.path.basename(k).startswith(
+        "Labor_Summary_by_Employee_Retool_Annual_Export_"
+    ) and k.lower().endswith(EXCEL_EXTS),
+}
 
 def _list_objects(bucket: str, prefix: str):
     paginator = s3.get_paginator("list_objects_v2")
@@ -44,20 +31,18 @@ def _list_objects(bucket: str, prefix: str):
             print("LISTED", obj["Key"])
             yield obj
 
-
 def _download(bucket: str, key: str) -> str:
     local = f"/tmp/{os.path.basename(key)}"
     s3.download_file(bucket, key, local)
     return local
 
 def handler(event, context):
-
     print("FUNC_NAME =", context.function_name)
     print("FUNC_VER  =", context.function_version)
     print("INVOKED_ARN =", context.invoked_function_arn)
     print("BUCKET =", os.environ.get("S3_BUCKET"))
     print("PREFIX =", repr(os.environ.get("S3_PREFIX", "")))
-    # quick direct probe for the labor key
+
     probe_key = "Paylocity/Labor_Summary_by_Employee_Retool_Annual_Export_2026-02-05.xlsx"
     try:
         s3.head_object(Bucket=BUCKET, Key=probe_key)
@@ -65,57 +50,46 @@ def handler(event, context):
     except Exception as e:
         print("HEAD_OBJECT labor: FAILED", repr(e))
 
+    print("AFTER_HEAD_OBJECT_MARKER")
 
-    ## t0 = time.time() ##
-    ## log.info("start request_id=%s bucket=%s prefix=%s", context.aws_request_id, BUCKET, PREFIX) ##
-    print('got to handler')
-    # Find newest key for each required file bucket
-    newest = {name: None for name in WANTS.keys()} 
+    print("got to handler")
 
-    ## t_list = time.time() ##
-    ## scanned = 0 ##
+    newest = {name: None for name in WANTS.keys()}
+
     for obj in _list_objects(BUCKET, PREFIX):
-        ## scanned += 1 ##
         key = obj["Key"]
         for name, predicate in WANTS.items():
-            print('in loop')
+            # print("in loop")  # 🔕 disabled to avoid log spam
             if predicate(key):
                 cur = newest[name]
                 if cur is None or obj["LastModified"] > cur["LastModified"]:
                     newest[name] = obj
-                    print(obj)
-    ## log.info("listed scanned=%d elapsed=%.2fs", scanned, time.time() - t_list) ##
+                    print("UPDATED", name, obj["Key"])
 
     missing = [name for name, obj in newest.items() if obj is None]
-    ## log.info("picked=%s missing=%s", {k: (v["Key"] if v else None) for k, v in newest.items()}, missing) ##
-    if missing:
-        raise RuntimeError(f"Missing required files in s3://{BUCKET}/{PREFIX or ''}: {missing}")
+    print("MISSING =", missing)
 
-    # Download
-    ## t_dl = time.time() ##
+    if missing:
+        raise RuntimeError(
+            f"Missing required files in s3://{BUCKET}/{PREFIX or ''}: {missing}"
+        )
+
     ccprov1_local = _download(BUCKET, newest["ccprov1"]["Key"])
     ccprov2_local = _download(BUCKET, newest["ccprov2"]["Key"])
     ccstaff_local = _download(BUCKET, newest["ccstaff"]["Key"])
     labor_local   = _download(BUCKET, newest["labor"]["Key"])
-    ## og.info("downloaded elapsed=%.2fs", time.time() - t_dl) ##
 
-    ## t_clean = time.time() ##
     ccprov_csv, ccstaff_csv = clean_ccprov_and_ccstaff(
         ccprov_paths=[ccprov1_local, ccprov2_local],
         ccstaff_paths=[ccstaff_local],
         out_dir="/tmp",
     )
-    ## log.info("cleaned elapsed=%.2fs", time.time() - t_clean) ##
 
-    ## t_pg = time.time() ##
     upload_to_postgres(
-    ccprov_csv_path=ccprov_csv,
-    ccstaff_csv_path=ccstaff_csv,
-    labor_xlsx_path=labor_local,
+        ccprov_csv_path=ccprov_csv,
+        ccstaff_csv_path=ccstaff_csv,
+        labor_xlsx_path=labor_local,
     )
-    ## log.info("uploaded elapsed=%.2fs", time.time() - t_pg) ##
-
-    ## log.info("done total_elapsed=%.2fs", time.time() - t0) ##
 
     return {
         "ok": True,
