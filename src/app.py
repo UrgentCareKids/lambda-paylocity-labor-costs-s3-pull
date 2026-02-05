@@ -22,16 +22,28 @@ WANTS = {
     "labor":   lambda k: os.path.basename(k).startswith("Labor_Summary_by_Employee_Retool_Annual_Export_") and k.lower().endswith(".xlsx"),
 }
 
+# def _list_objects(bucket: str, prefix: str):
+#     print('in _list_objects')
+#     paginator = s3.get_paginator("list_objects_v2")
+#     kwargs = {"Bucket": bucket}
+#     if prefix:
+#         kwargs["Prefix"] = prefix 
+#     for page in paginator.paginate(**kwargs):
+#         for obj in page.get("Contents", []):
+#             yield obj  
+#             print(obj)
+
 def _list_objects(bucket: str, prefix: str):
-    print('in _list_objects')
     paginator = s3.get_paginator("list_objects_v2")
     kwargs = {"Bucket": bucket}
     if prefix:
-        kwargs["Prefix"] = prefix 
+        kwargs["Prefix"] = prefix
+
     for page in paginator.paginate(**kwargs):
         for obj in page.get("Contents", []):
-            yield obj  
-            print(obj)
+            print("LISTED", obj["Key"])
+            yield obj
+
 
 def _download(bucket: str, key: str) -> str:
     local = f"/tmp/{os.path.basename(key)}"
