@@ -23,6 +23,7 @@ WANTS = {
 }
 
 def _list_objects(bucket: str, prefix: str):
+    print('in _list_objects')
     paginator = s3.get_paginator("list_objects_v2")
     kwargs = {"Bucket": bucket}
     if prefix:
@@ -40,7 +41,7 @@ def _download(bucket: str, key: str) -> str:
 def handler(event, context):
     ## t0 = time.time() ##
     ## log.info("start request_id=%s bucket=%s prefix=%s", context.aws_request_id, BUCKET, PREFIX) ##
-
+    print('got to handler')
     # Find newest key for each required file bucket
     newest = {name: None for name in WANTS.keys()} 
 
