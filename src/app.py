@@ -3,8 +3,9 @@ import boto3
 
 from pay_ccprov_clean import clean_ccprov_and_ccstaff
 from pay_ccprov_upload import upload_to_postgres
-
-s3 = boto3.client("s3")
+from botocore.config import Config
+s3 = boto3.client("s3", config=Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1}))
+# s3 = boto3.client("s3")
 
 BUCKET = os.environ["S3_BUCKET"]
 PREFIX = os.getenv("S3_PREFIX", "")
@@ -49,7 +50,10 @@ def handler(event, context):
         s3.head_object(Bucket=BUCKET, Key=probe_key)
         print("HEAD_OBJECT labor: OK")
     except Exception as e:
-        print("HEAD_OBJECT labor: FAILED", repr(e))
+        import traceback
+        print("HEAD_OBJECT labor: FAILED", type(e).__name__, repr(e))
+        traceback.print_exc()
+
 
     print("AFTER_HEAD_OBJECT_MARKER")
 
