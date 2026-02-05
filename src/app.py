@@ -51,6 +51,12 @@ def _download(bucket: str, key: str) -> str:
     return local
 
 def handler(event, context):
+    
+    print("FUNC_NAME =", context.function_name)
+    print("FUNC_VER  =", context.function_version)
+    print("INVOKED_ARN =", context.invoked_function_arn)
+    print("BUCKET =", os.environ.get("S3_BUCKET"))
+    print("PREFIX =", repr(os.environ.get("S3_PREFIX", "")))
     ## t0 = time.time() ##
     ## log.info("start request_id=%s bucket=%s prefix=%s", context.aws_request_id, BUCKET, PREFIX) ##
     print('got to handler')
