@@ -30,6 +30,7 @@ def _list_objects(bucket: str, prefix: str):
     for page in paginator.paginate(**kwargs):
         for obj in page.get("Contents", []):
             yield obj  
+            print(obj)
 
 def _download(bucket: str, key: str) -> str:
     local = f"/tmp/{os.path.basename(key)}"
@@ -49,10 +50,12 @@ def handler(event, context):
         ## scanned += 1 ##
         key = obj["Key"]
         for name, predicate in WANTS.items():
+            print('in loop')
             if predicate(key):
                 cur = newest[name]
                 if cur is None or obj["LastModified"] > cur["LastModified"]:
                     newest[name] = obj
+                    print(obj)
     ## log.info("listed scanned=%d elapsed=%.2fs", scanned, time.time() - t_list) ##
 
     missing = [name for name, obj in newest.items() if obj is None]
