@@ -9,6 +9,7 @@ s3 = boto3.client("s3")
 
 BUCKET = os.environ["S3_BUCKET"]
 PREFIX = os.getenv("S3_PREFIX", "")
+print(json.dumps({"msg": "before_list", "bucket": BUCKET, "prefix": PREFIX}))
 
 WANTS = {
     "ccprov1": lambda k: os.path.basename(k).startswith("ccprov1_") and k.lower().endswith(".xlsx"),
@@ -25,12 +26,15 @@ def log_checkpoint(name, start, extra=None):
     print(json.dumps(msg))
 
 def _list_objects(bucket: str, prefix: str):
+    print(json.dumps({"msg": "_list_objects_enter", "bucket": bucket, "prefix": prefix}))
     paginator = s3.get_paginator("list_objects_v2")
     kwargs = {"Bucket": bucket}
     if prefix:
         kwargs["Prefix"] = prefix
 
+    print(json.dumps({"msg": "_list_objects_paginate_start", "kwargs": kwargs}))
     for page in paginator.paginate(**kwargs):
+        print(json.dumps({"msg": "_list_objects_page_received", "key_count": page.get("KeyCount")}))
         for obj in page.get("Contents", []):
             print("LISTED", obj["Key"])
             yield obj
