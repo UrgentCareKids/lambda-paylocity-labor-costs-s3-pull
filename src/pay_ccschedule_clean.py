@@ -34,6 +34,16 @@ def _excel_date_to_timestamp(val):
     if isinstance(val, datetime):
         return pd.Timestamp(val.date())
 
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return None
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%m-%d-%Y", "%m-%d-%y"):
+            try:
+                return pd.Timestamp(datetime.strptime(s, fmt).date())
+            except Exception:
+                pass
+
     try:
         parsed = pd.to_datetime(val, errors="coerce")
         if pd.notna(parsed):
@@ -181,6 +191,12 @@ def process_ccschedule_file(file_path):
             continue
 
         row_vals = row.tolist()
+        text_vals = [str(v).strip() for v in row_vals if pd.notna(v)]
+        joined = " | ".join(text_vals[:12])
+
+        if any(day in joined.lower() for day in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]):
+            print(f"[ccschedule] dayish row i={i} values={joined}")
+
         if _looks_like_week_header(row_vals):
             current_week_dates = _extract_week_dates(row_vals)
             print(f"[ccschedule] week header i={i} dates={current_week_dates}")
@@ -188,6 +204,15 @@ def process_ccschedule_file(file_path):
             continue
 
         employee = _parse_employee_row(row)
+        if employee:
+            print(
+                f"[ccschedule] employee candidate i={i} "
+                f"name={employee['Employee Name']} "
+                f"num={employee['Employee Number']} "
+                f"facility={current_facility} "
+                f"has_week={current_week_dates is not None}"
+            )
+
         if employee and current_facility and current_week_dates:
             manual_row = df.iloc[i + 1] if i + 1 < len(df) else None
             points_row = df.iloc[i + 2] if i + 2 < len(df) else None
@@ -214,12 +239,14 @@ def process_ccschedule_file(file_path):
                     }
                 )
 
+            print(f"[ccschedule] added 7 rows for employee={employee['Employee Name']} at i={i}")
             i += 3
             continue
 
         i += 1
 
     out_df = pd.DataFrame(rows_out)
+    print(f"[ccschedule] file={file_path} final_rows={len(out_df)}")
 
     if out_df.empty:
         return out_df
