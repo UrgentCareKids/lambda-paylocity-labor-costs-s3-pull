@@ -56,17 +56,20 @@ def _read_xlsx_rows(path, header_row=1):
         rows.append([_noneify(v) for v in row])
     return header, rows
 
-def upload_to_postgres(ccprov_csv_path, ccstaff_csv_path, labor_xlsx_path):
+def upload_to_postgres(ccprov_csv_path, ccstaff_csv_path, labor_xlsx_path, ccschedule_csv_path):
     conn = get_db_connection()
     cursor = conn.cursor()
 
     table_name = 'app.clinic_ccprov'
     lab_table_name = 'app.clinic_labor_costs'
     staff_table_name = 'app.clinic_ccstaff'
+    schedule_table_name = 'app.clinic_ccschedule'
+    
 
     cursor.execute('truncate app.clinic_ccprov')
     cursor.execute('truncate app.clinic_ccstaff')
     cursor.execute('truncate app.clinic_labor_costs')
+    cursor.execute('truncate app.clinic_ccschedule')
     conn.commit()
 
     batch_size = 100
@@ -128,6 +131,31 @@ def upload_to_postgres(ccprov_csv_path, ccstaff_csv_path, labor_xlsx_path):
             buf = []
     if buf:
         execute_values(cursor, lab_insert_query, buf)
+        conn.commit()
+
+    # ccschedule
+    _, ccschedule_rows = _read_csv_rows(ccschedule_csv_path)
+    schedule_insert_query = f"""INSERT INTO {schedule_table_name} (
+        cc1,
+        employee_name,
+        employee_number,
+        shift_date,
+        shift_day,
+        shift,
+        shift_hours,
+        manual_attendance,
+        manual_attendance_points
+    ) VALUES %s ON CONFLICT DO NOTHING;"""
+
+    buf = []
+    for row in ccschedule_rows:
+        buf.append(tuple(row))
+        if len(buf) == batch_size:
+            execute_values(cursor, schedule_insert_query, buf)
+            conn.commit()
+            buf = []
+    if buf:
+        execute_values(cursor, schedule_insert_query, buf)
         conn.commit()
 
     cursor.close()

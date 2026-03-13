@@ -4,6 +4,7 @@ import time, json
 
 from pay_ccprov_clean import clean_ccprov_and_ccstaff
 from pay_ccprov_upload import upload_to_postgres
+from pay_ccschedule_clean import clean_ccschedule_files
 
 s3 = boto3.client("s3")
 
@@ -15,6 +16,9 @@ WANTS = {
     "ccprov2": lambda k: os.path.basename(k).startswith("ccprov2_") and k.lower().endswith(".xlsx"),
     "ccstaff": lambda k: os.path.basename(k).startswith("ccstaff_") and k.lower().endswith(".xlsx"),
     "labor":   lambda k: os.path.basename(k).startswith("Labor_Summary_by_Employee_Retool_Annual_Export_") and k.lower().endswith(".xlsx"),
+    "ccschedule1": lambda k: os.path.basename(k).startswith("ccschedule1_") and k.lower().endswith((".xls", ".xlsx")),
+    "ccschedule2": lambda k: os.path.basename(k).startswith("ccschedule2_") and k.lower().endswith((".xls", ".xlsx")),
+    "ccschedule3": lambda k: os.path.basename(k).startswith("ccschedule3_") and k.lower().endswith((".xls", ".xlsx")),
 }
 
 def log_checkpoint(name, start, extra=None):
@@ -74,6 +78,9 @@ def handler(event, context):
     ccprov2_local = _download(BUCKET, newest["ccprov2"]["Key"])
     ccstaff_local = _download(BUCKET, newest["ccstaff"]["Key"])
     labor_local   = _download(BUCKET, newest["labor"]["Key"])
+    ccschedule1_local = _download(BUCKET, newest["ccschedule1"]["Key"])
+    ccschedule2_local = _download(BUCKET, newest["ccschedule2"]["Key"])
+    ccschedule3_local = _download(BUCKET, newest["ccschedule3"]["Key"])
     log_checkpoint("downloads_done", t)
 
     t = time.time()
@@ -81,8 +88,22 @@ def handler(event, context):
         ccprov_paths=[ccprov1_local, ccprov2_local],
         ccstaff_paths=[ccstaff_local],
         out_dir="/tmp",
+    ) 
+    ccschedule_csv, ccschedule_df = clean_ccschedule_files(
+        ccschedule_paths=[ccschedule1_local, ccschedule2_local, ccschedule3_local],
+        out_dir="/tmp",
+        output_filename="ccschedule_merged_clean.csv",
     )
-    log_checkpoint("clean_done", t, {"ccprov_csv": ccprov_csv, "ccstaff_csv": ccstaff_csv})
+    log_checkpoint(
+        "clean_done",
+        t,
+        {
+            "ccprov_csv": ccprov_csv,
+            "ccstaff_csv": ccstaff_csv,
+            "ccschedule_csv": ccschedule_csv,
+            "ccschedule_row_count": len(ccschedule_df),
+        },
+    )
 
 
     t = time.time()
@@ -90,6 +111,7 @@ def handler(event, context):
     ccprov_csv_path=ccprov_csv,
     ccstaff_csv_path=ccstaff_csv,
     labor_xlsx_path=labor_local,
+    ccschedule_csv_path=ccschedule_csv
     )
     log_checkpoint("upload_done", t)
 
@@ -97,4 +119,6 @@ def handler(event, context):
     return {
         "ok": True,
         "picked": {k: v["Key"] for k, v in newest.items()},
+        "merged_csv": ccschedule_csv,
+        "row_count": len(ccschedule_df),
     }
