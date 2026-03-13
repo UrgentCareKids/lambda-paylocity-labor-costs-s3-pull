@@ -157,7 +157,13 @@ def _safe_cell(row, idx):
 
 
 def process_ccschedule_file(file_path):
-    df = pd.read_excel(file_path, header=None, dtype=object)
+    lower = file_path.lower()
+    if lower.endswith(".xls"):
+        df = pd.read_excel(file_path, header=None, dtype=object, engine="xlrd")
+    else:
+        df = pd.read_excel(file_path, header=None, dtype=object, engine="openpyxl")
+
+    print(f"[ccschedule] file={file_path} shape={df.shape}")
 
     rows_out = []
     current_facility = None
@@ -170,12 +176,14 @@ def process_ccschedule_file(file_path):
 
         if _is_facility_row(cell_a):
             current_facility = _normalize_cc1(cell_a)
+            print(f"[ccschedule] facility row i={i} facility={current_facility}")
             i += 1
             continue
 
         row_vals = row.tolist()
         if _looks_like_week_header(row_vals):
             current_week_dates = _extract_week_dates(row_vals)
+            print(f"[ccschedule] week header i={i} dates={current_week_dates}")
             i += 1
             continue
 
