@@ -55,9 +55,13 @@ def handler(event, context):
     t0 = time.time()
     print(json.dumps({"msg": "handler_start", "request_id": context.aws_request_id}))
 
-    print(json.dumps({"msg": "head_bucket_start", "bucket": BUCKET}))
-    s3.head_bucket(Bucket=BUCKET)
-    print(json.dumps({"msg": "head_bucket_done"}))
+    print(json.dumps({"msg": "list_probe_start", "bucket": BUCKET, "prefix": PREFIX}))
+    probe = s3.list_objects_v2(Bucket=BUCKET, Prefix=PREFIX, MaxKeys=1)
+    print(json.dumps({
+        "msg": "list_probe_done",
+        "key_count": probe.get("KeyCount"),
+        "is_truncated": probe.get("IsTruncated")
+    }))
 
     print(json.dumps({"msg": "before_list", "bucket": BUCKET, "prefix": PREFIX}))
 
