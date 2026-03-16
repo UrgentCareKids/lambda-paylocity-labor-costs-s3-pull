@@ -127,7 +127,12 @@ def parse_workbook(path):
         col_a = values[0]
 
         if is_clinic_row(values):
-            current_clinic = col_a
+            clinic_name = clean_cell(col_a)
+
+            # Skip rows where the clinic is Wendy
+            if clinic_name and clinic_name.lower() != 'wendy':
+                current_clinic = clinic_name.title()  # initcap equivalent
+
             r += 1
             continue
 
