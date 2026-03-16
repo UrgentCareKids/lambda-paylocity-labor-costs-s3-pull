@@ -1,301 +1,253 @@
-import os
 import re
-from datetime import datetime
+from pathlib import Path
+from datetime import datetime, timedelta
 
 import pandas as pd
 
+# Shift dates appear in these columns in the uploaded schedules.
+DATE_COLS = [4, 6, 8, 11, 14, 15, 17]  # E, G, I, L, O, P, R
 
-DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+NON_SHIFT_VALUES = {
+    None,
+    '',
+    'off',
+    'pto',
+    'vacation',
+    'holiday',
+    'n/a',
+    'na',
+    '-',
+}
+
+TIME_RANGE_RE = re.compile(
+    r'(?P<start>\d{1,2}(?::\d{2})?\s*(?:AM|PM|A|P)?)\s*[-–]\s*(?P<end>\d{1,2}(?::\d{2})?\s*(?:AM|PM|A|P)?)',
+    re.IGNORECASE,
+)
 
 
-def _normalize_text(val):
-    if pd.isna(val):
+def clean_cell(value):
+    if pd.isna(value):
         return None
-    s = str(val).strip()
-    if not s or s.lower() == "nan":
-        return None
-    return s
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    text = str(value).replace('\xa0', ' ').strip()
+    return text or None
 
 
-def _normalize_cc1(val):
-    s = _normalize_text(val)
-    if not s:
-        return None
-    return s.upper()
+def row_values(df, row_idx):
+    return [clean_cell(v) for v in df.iloc[row_idx].tolist()]
 
 
-def _excel_date_to_timestamp(val):
-    if pd.isna(val):
-        return None
-
-    if isinstance(val, pd.Timestamp):
-        return val.normalize()
-
-    if isinstance(val, datetime):
-        return pd.Timestamp(val.date())
-
-    if isinstance(val, str):
-        s = val.strip()
-        if not s:
-            return None
-        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%m-%d-%Y", "%m-%d-%y"):
-            try:
-                return pd.Timestamp(datetime.strptime(s, fmt).date())
-            except Exception:
-                pass
-
-    try:
-        parsed = pd.to_datetime(val, errors="coerce")
-        if pd.notna(parsed):
-            return pd.Timestamp(parsed).normalize()
-    except Exception:
-        pass
-
-    return None
-
-
-def _clean_shift_text(val):
-    s = _normalize_text(val)
-    if not s:
-        return None
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace(" - ", "-").replace("- ", "-").replace(" -", "-")
-    return s
-
-
-def _is_time_range(text):
-    if not text:
+def is_clinic_row(values):
+    first = values[0] if values else None
+    if not first:
         return False
-
-    text = text.strip().upper().replace("AM", " AM").replace("PM", " PM")
-    text = re.sub(r"\s+", " ", text)
-
-    pattern = r"^\d{1,2}:\d{2}\s?(AM|PM)-\d{1,2}:\d{2}\s?(AM|PM)$"
-    return bool(re.match(pattern, text))
-
-
-def _calculate_shift_hours(shift_text):
-    if not shift_text:
-        return None
-
-    s = shift_text.strip().upper()
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace("AM", " AM").replace("PM", " PM")
-    s = re.sub(r"\s+", " ", s)
-    s = s.replace(" - ", "-").replace("- ", "-").replace(" -", "-")
-
-    if not _is_time_range(s):
-        return None
-
-    try:
-        start_str, end_str = s.split("-", 1)
-        start_dt = datetime.strptime(start_str.strip(), "%I:%M %p")
-        end_dt = datetime.strptime(end_str.strip(), "%I:%M %p")
-
-        hours = (end_dt - start_dt).total_seconds() / 3600.0
-        if hours < 0:
-            hours += 24
-
-        return round(hours, 2)
-    except Exception:
-        return None
-
-
-def _is_facility_row(cell_a):
-    s = _normalize_text(cell_a)
-    if not s:
-        return False
-
-    s_clean = s.replace(",", "").replace(".", "").replace("-", "").replace("&", "").strip()
-
-    if len(s_clean) < 3:
-        return False
-
-    if "," in s:
-        return False
-
-    upper_ratio = sum(1 for ch in s_clean if ch.isalpha() and ch.isupper()) / max(
-        1, sum(1 for ch in s_clean if ch.isalpha())
-    )
-    return upper_ratio > 0.8
-
-
-def _extract_week_dates(row_values):
-    dates = []
-    for val in row_values:
-        dt = _excel_date_to_timestamp(val)
-        if dt is not None:
-            dates.append(dt)
-
-    if len(dates) >= 7:
-        return dates[:7]
-
-    return None
-
-
-def _looks_like_week_header(row_values):
-    text_vals = [str(v).strip().lower() for v in row_values if pd.notna(v)]
-    joined = " ".join(text_vals)
-
-    day_hits = sum(day.lower() in joined for day in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
-    dates = _extract_week_dates(row_values)
-
-    return day_hits >= 2 and dates is not None and len(dates) == 7
-
-
-def _parse_employee_row(row):
-    cell_a = _normalize_text(row.iloc[0] if len(row) > 0 else None)
-    if not cell_a:
-        return None
-
-    if "," not in cell_a:
-        return None
-
-    employee_name = cell_a
-    employee_number = _normalize_text(row.iloc[1] if len(row) > 1 else None)
-
-    return {
-        "Employee Name": employee_name,
-        "Employee Number": employee_number,
+    blocked = {
+        'Name', 'Employee', 'Employee ', 'Totals:', 'Manual Attendance',
+        'Report by Department', 'Detailed Schedules'
     }
+    if first in blocked:
+        return False
+    return all(v is None for v in values[1:])
 
 
-def _safe_cell(row, idx):
-    if idx >= len(row):
+def _read_schedule_workbook(path):
+    suffix = Path(path).suffix.lower()
+    engine = None
+    if suffix == '.xlsx':
+        engine = 'openpyxl'
+    elif suffix == '.xls':
+        engine = 'xlrd'
+
+    try:
+        return pd.read_excel(path, sheet_name=0, header=None, engine=engine)
+    except ImportError as exc:
+        if suffix == '.xls':
+            raise ImportError(
+                "Reading .xls files requires the 'xlrd' package in your Lambda deployment package or layer."
+            ) from exc
+        raise
+
+
+def _normalize_ampm(value):
+    text = value.strip().upper().replace('.', '')
+    if text.endswith('A') and not text.endswith('AM'):
+        text += 'M'
+    if text.endswith('P') and not text.endswith('PM'):
+        text += 'M'
+    return text
+
+
+def _parse_time(value):
+    text = _normalize_ampm(value)
+    for fmt in ('%I:%M %p', '%I %p', '%H:%M', '%H'):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def calculate_shift_hours(shift):
+    if shift is None:
         return None
-    return row.iloc[idx]
+
+    text = clean_cell(shift)
+    if text is None:
+        return None
+    if text.lower() in NON_SHIFT_VALUES:
+        return None
+
+    match = TIME_RANGE_RE.search(text)
+    if not match:
+        return None
+
+    start = _parse_time(match.group('start'))
+    end = _parse_time(match.group('end'))
+    if start is None or end is None:
+        return None
+
+    if end <= start:
+        end += timedelta(days=1)
+
+    hours = round((end - start).total_seconds() / 3600, 2)
+    return hours
 
 
-def process_ccschedule_file(file_path):
-    lower = file_path.lower()
-    if lower.endswith(".xls"):
-        df = pd.read_excel(file_path, header=None, dtype=object, engine="xlrd")
-    else:
-        df = pd.read_excel(file_path, header=None, dtype=object, engine="openpyxl")
+def parse_workbook(path):
+    df = _read_schedule_workbook(path)
+    results = []
+    current_clinic = None
+    current_days = {}
+    current_dates = {}
+    r = 0
 
-    print(f"[ccschedule] file={file_path} shape={df.shape}")
+    while r < len(df):
+        values = row_values(df, r)
+        col_a = values[0]
 
-    rows_out = []
-    current_facility = None
-    current_week_dates = None
-
-    i = 0
-    while i < len(df):
-        row = df.iloc[i]
-        cell_a = _normalize_text(_safe_cell(row, 0))
-
-        if _is_facility_row(cell_a):
-            current_facility = _normalize_cc1(cell_a)
-            print(f"[ccschedule] facility row i={i} facility={current_facility}")
-            i += 1
+        if is_clinic_row(values):
+            current_clinic = col_a
+            r += 1
             continue
 
-        row_vals = row.tolist()
-        text_vals = [str(v).strip() for v in row_vals if pd.notna(v)]
-        joined = " | ".join(text_vals[:12])
-
-        if any(day in joined.lower() for day in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]):
-            print(f"[ccschedule] dayish row i={i} values={joined}")
-
-        if _looks_like_week_header(row_vals):
-            current_week_dates = _extract_week_dates(row_vals)
-            print(f"[ccschedule] week header i={i} dates={current_week_dates}")
-            i += 1
+        # Header block: previous row has day names, current row starts with Name.
+        if col_a == 'Name':
+            prev_values = row_values(df, r - 1) if r > 0 else []
+            current_days = {
+                c: clean_cell(prev_values[c]) if c < len(prev_values) else None
+                for c in DATE_COLS
+            }
+            current_dates = {
+                c: clean_cell(values[c]) if c < len(values) else None
+                for c in DATE_COLS
+            }
+            r += 1
             continue
 
-        employee = _parse_employee_row(row)
-        if employee:
-            print(
-                f"[ccschedule] employee candidate i={i} "
-                f"name={employee['Employee Name']} "
-                f"num={employee['Employee Number']} "
-                f"facility={current_facility} "
-                f"has_week={current_week_dates is not None}"
-            )
-
-        if employee and current_facility and current_week_dates:
-            manual_row = df.iloc[i + 1] if i + 1 < len(df) else None
-            points_row = df.iloc[i + 2] if i + 2 < len(df) else None
-
-            for day_idx in range(7):
-                shift_val = _clean_shift_text(_safe_cell(row, day_idx + 2))
-                manual_val = _normalize_text(_safe_cell(manual_row, day_idx + 2)) if manual_row is not None else None
-                points_val = _normalize_text(_safe_cell(points_row, day_idx + 2)) if points_row is not None else None
-
-                shift_date = current_week_dates[day_idx]
-                shift_day = DAY_NAMES[day_idx]
-
-                rows_out.append(
-                    {
-                        "cc1": current_facility,
-                        "Employee Name": employee["Employee Name"],
-                        "Employee Number": employee["Employee Number"],
-                        "Shift Date": shift_date.strftime("%-m/%-d/%Y") if os.name != "nt" else shift_date.strftime("%#m/%#d/%Y"),
-                        "Shift Day": shift_day,
-                        "Shift": shift_val,
-                        "Shift Hours": _calculate_shift_hours(shift_val),
-                        "Manual Attendance": manual_val,
-                        "Manual Attendance Points": points_val,
-                    }
-                )
-
-            print(f"[ccschedule] added 7 rows for employee={employee['Employee Name']} at i={i}")
-            i += 3
+        if col_a is None or col_a == 'Totals:':
+            r += 1
             continue
 
-        i += 1
+        employee_name = col_a
+        employee_number = values[1]
+        if employee_number is None or not current_dates:
+            r += 1
+            continue
 
-    out_df = pd.DataFrame(rows_out)
-    print(f"[ccschedule] file={file_path} final_rows={len(out_df)}")
+        row_plus_1 = row_values(df, r + 1) if r + 1 < len(df) else []
+        row_plus_2 = row_values(df, r + 2) if r + 2 < len(df) else []
 
-    if out_df.empty:
-        return out_df
+        for c in DATE_COLS:
+            raw_shift = values[c] if c < len(values) else None
+            shift_date = current_dates.get(c)
+            shift_day = current_days.get(c)
+            manual_attendance = raw_shift == 'Manual Attendance'
 
-    out_df = out_df.drop_duplicates().reset_index(drop=True)
-    return out_df
+            if manual_attendance:
+                shift = row_plus_2[c] if c < len(row_plus_2) else None
+                manual_points = row_plus_1[c] if c < len(row_plus_1) else None
+            else:
+                shift = raw_shift
+                manual_points = None
+
+            shift = clean_cell(shift)
+            results.append({
+                'cc1': current_clinic,
+                'employee_name': employee_name,
+                'employee_number': employee_number,
+                'shift_date': shift_date,
+                'shift_day': shift_day,
+                'shift': shift,
+                'shift_hours': calculate_shift_hours(shift),
+                'manual_attendance': manual_attendance,
+                'manual_attendance_points': clean_cell(manual_points),
+            })
+
+        r += 1
+
+    final_df = pd.DataFrame(results)
+    if final_df.empty:
+        return final_df
+
+    parsed_dates = pd.to_datetime(final_df['shift_date'], errors='coerce')
+    final_df['shift_date'] = parsed_dates.dt.strftime('%Y-%m-%d').where(
+        parsed_dates.notna(),
+        final_df['shift_date'],
+    )
+
+    ordered_cols = [
+        'cc1',
+        'employee_name',
+        'employee_number',
+        'shift_date',
+        'shift_day',
+        'shift',
+        'shift_hours',
+        'manual_attendance',
+        'manual_attendance_points',
+    ]
+    return final_df[ordered_cols]
 
 
-def clean_ccschedule_files(ccschedule_paths, out_dir="/tmp", output_filename="ccschedule_merged_clean.csv"):
-    cleaned_frames = []
+def clean_ccschedule_files(ccschedule_paths, out_dir='/tmp', output_filename='ccschedule_merged_clean.csv'):
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
 
-    for path in ccschedule_paths:
-        df = process_ccschedule_file(path)
-        if not df.empty:
-            df["source_file"] = os.path.basename(path)
-            cleaned_frames.append(df)
+    frames = [parse_workbook(path) for path in ccschedule_paths]
+    final_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=[
+        'cc1',
+        'employee_name',
+        'employee_number',
+        'shift_date',
+        'shift_day',
+        'shift',
+        'shift_hours',
+        'manual_attendance',
+        'manual_attendance_points',
+    ])
 
-    if cleaned_frames:
-        merged = pd.concat(cleaned_frames, ignore_index=True)
-        merged = merged.drop_duplicates(
-            subset=[
-                "cc1",
-                "Employee Name",
-                "Employee Number",
-                "Shift Date",
-                "Shift Day",
-                "Shift",
-                "Shift Hours",
-                "Manual Attendance",
-                "Manual Attendance Points",
-            ]
-        ).reset_index(drop=True)
-    else:
-        merged = pd.DataFrame(
-            columns=[
-                "cc1",
-                "Employee Name",
-                "Employee Number",
-                "Shift Date",
-                "Shift Day",
-                "Shift",
-                "Shift Hours",
-                "Manual Attendance",
-                "Manual Attendance Points",
-                "source_file",
-            ]
-        )
+    csv_path = out_path / output_filename
+    final_df.to_csv(csv_path, index=False)
+    return str(csv_path), final_df
 
-    out_path = os.path.join(out_dir, output_filename)
-    merged.to_csv(out_path, index=False)
 
-    return out_path, merged
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Flatten schedule xls/xlsx files into one CSV.')
+    parser.add_argument('inputs', nargs='+', help='Input .xls/.xlsx files')
+    parser.add_argument('-o', '--output', required=True, help='Output CSV path')
+    args = parser.parse_args()
+
+    output_path = Path(args.output)
+    csv_path, final_df = clean_ccschedule_files(
+        ccschedule_paths=args.inputs,
+        out_dir=str(output_path.parent),
+        output_filename=output_path.name,
+    )
+    print(f'Wrote {len(final_df):,} rows to {csv_path}')
+
+
+if __name__ == '__main__':
+    main()
